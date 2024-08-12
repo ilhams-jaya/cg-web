@@ -1,22 +1,53 @@
 'use client';
+
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
+import toast from 'react-hot-toast';
 
 export default function Signin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const router = useRouter();
+
   const handleSignIn = async () => {
-    const result = await signIn('credentials', {email, password, redirect: false});
-    if (result?.ok) {
-      router.push('/stopwatch');
+    try {
+      // Cek apakah pengguna dengan email yang diberikan ada di Firestore
+      const q = query(collection(db, 'users'), where('email', '==', email));
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        // Ambil data pengguna dari snapshot
+        const userDoc = querySnapshot.docs[0];
+        const userData = userDoc.data();
+
+      
+        const result = await signIn('credentials', { email, password, redirect: false });
+
+        if (result?.ok) {
+          if (userData.isAdmin) {
+            router.push('/');
+          } else {
+            router.push('/stopwatch');
+          }
+          toast.success("Successfully signed in");
+        } else {
+          toast.error('Sign in failed');
+        }
+      } else {
+        toast.error('User not found');
+      }
+    } catch (error) {
+      console.error('Error during sign in:', error);
+      toast.error('An error occurred during sign in');
     }
   };
-  
+
   return (
     <>
-    <div className="flex min-h-full flex-1 flex-col justify-center px-6 py-12 lg:px-8">
+      <div className="flex min-h-full flex-1 flex-col justify-center px-6 py-12 lg:px-8">
         <div className="sm:mx-auto sm:w-full sm:max-w-sm">
           <h2 className="mt-10 text-center text-2xl font-bold leading-9 tracking-tight text-white">
             Sign in to your account

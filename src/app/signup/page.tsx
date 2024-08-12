@@ -1,8 +1,9 @@
 'use client';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase'; // Pastikan 'firestore' diimport dari konfigurasi Firebase Anda
 
 export default function Signup() {
   const [email, setEmail] = useState('');
@@ -10,13 +11,27 @@ export default function Signup() {
   const [passwordAgain, setPasswordAgain] = useState('');
   const router = useRouter();
 
-  const signup = () => {
-    createUserWithEmailAndPassword(auth, email, password);
+  const signup = async () => {
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // Simpan data pengguna di Firestore
+      await setDoc(doc(db, 'users', user.uid), {
+        email: user.email,
+        id: user.uid,
+        isAdmin: false,
+      });
+
+      router.push('/signin'); 
+    } catch (error) {
+      console.error('Error during sign up:', error);
+    }
   };
-  
+
   return (
     <>
-    <div className="flex min-h-full flex-1 flex-col justify-center px-6 py-12 lg:px-8">
+      <div className="flex min-h-full flex-1 flex-col justify-center px-6 py-12 lg:px-8">
         <div className="sm:mx-auto sm:w-full sm:max-w-sm">
           <h2 className="mt-10 text-center text-2xl font-bold leading-9 tracking-tight text-white">
             Sign up
@@ -62,7 +77,7 @@ export default function Signup() {
             </div>
             <div>
               <div className="flex items-center justify-between">
-                <label htmlFor="password" className="block text-sm font-medium leading-6 text-white">
+                <label htmlFor="passwordAgain" className="block text-sm font-medium leading-6 text-white">
                   Password Again
                 </label>
               </div>
