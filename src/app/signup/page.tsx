@@ -3,12 +3,14 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { auth, db } from '../firebase'; // Pastikan 'firestore' diimport dari konfigurasi Firebase Anda
+import { auth, db } from '../firebase';
+import toast from 'react-hot-toast';
 
 export default function Signup() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordAgain, setPasswordAgain] = useState('');
+  const [fullname, setFullname] = useState(''); 
   const router = useRouter();
 
   const signup = async () => {
@@ -16,16 +18,16 @@ export default function Signup() {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Simpan data pengguna di Firestore
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
         id: user.uid,
+        fullname: fullname, 
         isAdmin: false,
       });
 
       router.push('/signin'); 
     } catch (error) {
-      console.error('Error during sign up:', error);
+      toast.error('Error during sign up:');
     }
   };
 
@@ -40,6 +42,23 @@ export default function Signup() {
 
         <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
           <div className="space-y-6">
+            <div>
+              <label htmlFor="fullname" className="block text-sm font-medium leading-6 text-white">
+                Full Name
+              </label>
+              <div className="mt-2">
+                <input
+                  id="fullname"
+                  name="fullname"
+                  type="text"
+                  autoComplete="name"
+                  onChange={(e) => setFullname(e.target.value)}
+                  required
+                  className="block w-full rounded-md border-0 bg-white/5 py-1.5 text-white shadow-sm ring-1 ring-inset ring-white/10 focus:ring-2 focus:ring-inset focus:ring-indigo-500 sm:text-sm sm:leading-6"
+                />
+              </div>
+            </div>
+
             <div>
               <label htmlFor="email" className="block text-sm font-medium leading-6 text-white">
                 Email address
@@ -58,11 +77,9 @@ export default function Signup() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between">
-                <label htmlFor="password" className="block text-sm font-medium leading-6 text-white">
-                  Password
-                </label>
-              </div>
+              <label htmlFor="password" className="block text-sm font-medium leading-6 text-white">
+                Password
+              </label>
               <div className="mt-2">
                 <input
                   id="password"
@@ -75,12 +92,11 @@ export default function Signup() {
                 />
               </div>
             </div>
+
             <div>
-              <div className="flex items-center justify-between">
-                <label htmlFor="passwordAgain" className="block text-sm font-medium leading-6 text-white">
-                  Password Again
-                </label>
-              </div>
+              <label htmlFor="passwordAgain" className="block text-sm font-medium leading-6 text-white">
+                Password Again
+              </label>
               <div className="mt-2">
                 <input
                   id="passwordAgain"
@@ -96,7 +112,7 @@ export default function Signup() {
 
             <div>
               <button
-                disabled={(!email || !password || !passwordAgain) || (password !== passwordAgain)}
+                disabled={(!email || !password || !passwordAgain || !fullname) || (password !== passwordAgain)}
                 onClick={() => signup()}
                 className="disabled:opacity-40 flex w-full justify-center rounded-md bg-indigo-500 px-3 py-1.5 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
               >

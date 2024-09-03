@@ -10,22 +10,24 @@ import {
   deleteDoc,
   doc,
   updateDoc,
+  getDocs
 } from "firebase/firestore";
-import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEdit, faTrash } from "@fortawesome/free-solid-svg-icons";
 import SideNavbar from "../components/SideNavbar";
 import Checkout from "../components/Checkout";
 import Image from "next/image";
-import { useSession } from 'next-auth/react';
-import { app } from "../firebase"; 
+import { app } from "../firebase";
+import { useSession } from "next-auth/react";
+import { useCart } from "react-use-cart";
 
 interface MenuData {
   id?: string;
   name: string;
   price: string;
   imageUrl: string;
+  userId: string;
 }
 
 interface MenuFormData {
@@ -35,6 +37,7 @@ interface MenuFormData {
 }
 
 export default function Menu() {
+  const { data: session } = useSession();
   const [menus, setMenus] = useState<MenuData[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -44,36 +47,50 @@ export default function Menu() {
     price: "",
     image: null,
   });
+  const { addItem } = useCart();
+
   const db = getFirestore(app);
-  const auth = getAuth(app);
-  const storage = getStorage(app); // Inisialisasi Firebase Storage
-  const user = auth.currentUser;
-  console.log(user);
- 
+  const storage = getStorage(app);
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        const q = query(collection(db, "menus"), where("userId", "==", user.uid));
-        const unsubscribeFirestore = onSnapshot(q, (querySnapshot) => {
-          const menusData: MenuData[] = [];
-          querySnapshot.forEach((doc) => {
-            menusData.push({ ...doc.data(), id: doc.id } as MenuData);
-          });
-          setMenus(menusData);
-        });
-  
-        return () => unsubscribeFirestore();
-      } else {
-        setMenus([]); // Reset state menus on logout
+    const fetchUserId = async () => {
+      if (session?.user?.email) {
+        const usersQuery = query(
+          collection(db, "users"),
+          where("email", "==", session.user.email)
+        );
+        const querySnapshot = await getDocs(usersQuery);
+        if (!querySnapshot.empty) {
+          const userDoc = querySnapshot.docs[0];
+          setUserId(userDoc.id); 
+        }
       }
-    });
-  
-    return () => unsubscribe();
-  }, [auth, db]);
-  
-  
-  
+    };
+
+    fetchUserId();
+  }, [session?.user?.email, db]);
+
+  useEffect(() => {
+    if (userId) {
+      const q = query(
+        collection(db, "menus"),
+        where("userId", "==", userId) 
+      );
+
+      const unsubscribeFirestore = onSnapshot(q, (querySnapshot) => {
+        const menusData: MenuData[] = [];
+        querySnapshot.forEach((doc) => {
+          menusData.push({ ...doc.data(), id: doc.id } as MenuData);
+        });
+        setMenus(menusData);
+      });
+
+      return () => unsubscribeFirestore();
+    } else {
+      setMenus([]); 
+    }
+  }, [userId, db]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files ? e.target.files[0] : null;
@@ -91,22 +108,22 @@ export default function Menu() {
   const handleAddMenu = async () => {
     if (menuData.name && menuData.price && menuData.image) {
       try {
-        // Mengunggah gambar ke Firebase Storage
+        if (!userId) {
+          alert("You need to be logged in to add a menu.");
+          return;
+        }
+
         const storageRef = ref(storage, `images/${menuData.image.name}`);
         await uploadBytes(storageRef, menuData.image);
 
-        // Mendapatkan URL download gambar
         const imageUrl = await getDownloadURL(storageRef);
 
-        // Menyimpan data menu ke Firestore
-        if (user) {
-          await addDoc(collection(db, "menus"), {
-            name: menuData.name,
-            price: menuData.price,
-            imageUrl: imageUrl,
-            userId: user.uid,
-          });
-        }
+        await addDoc(collection(db, "menus"), {
+          name: menuData.name,
+          price: menuData.price,
+          imageUrl: imageUrl,
+          userId: userId, 
+        });
 
         setIsModalOpen(false);
         setMenuData({ name: "", price: "", image: null });
@@ -144,12 +161,12 @@ export default function Menu() {
           imageUrl = await getDownloadURL(storageRef);
         }
 
-        // Memperbarui data menu di Firestore
-        if (user) {
+        if (userId) {
           await updateDoc(doc(db, "menus", editMenuId), {
             name: menuData.name,
             price: menuData.price,
             imageUrl: imageUrl,
+            userId: userId, 
           });
         }
 
@@ -173,13 +190,11 @@ export default function Menu() {
     }
   };
 
-  const handleAddToCart = async (menuId: string) => {
-    // Implementasi penambahan ke keranjang
-  };
+  
 
   return (
     <>
-      <div className="flex bg-white text-indigo-900 h-auto">
+      <div className="flex bg-white text-indigo-900 h-full">
         <div className="w-64">
           <SideNavbar />
         </div>
@@ -210,13 +225,15 @@ export default function Menu() {
                   src={menu.imageUrl}
                   alt={menu.name}
                   className="w-full h-48 object-cover mb-4"
-                  width={200}
-                  height={200}
+                  width={150}
+                  height={150}
                 />
                 <h2 className="text-lg font-bold">{menu.name}</h2>
                 <p className="text-gray-600">Rp{menu.price}</p>
                 <div className="mt-4 flex justify-between items-center">
-                  <button className="text-white px-4 py-2 bg-indigo-600 rounded-md">
+                  <button 
+                  className="text-white px-4 py-2 bg-indigo-600 rounded-md"
+                  >
                     Add to Cart
                   </button>
                   <button
@@ -291,4 +308,5 @@ export default function Menu() {
     </>
   );
 }
+
 Menu.requireAuth = true;

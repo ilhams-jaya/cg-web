@@ -13,7 +13,7 @@ export default function Checkout() {
     <>
       <div className="checkout p-8 h-full bg-white border-l-2 border-gray-300 w-2/6 fixed">
         <div className="checkout-header">
-          <h1 className="text-2xl">Checkout</h1>
+          <h1 className="text-2xl font-bold">Checkout</h1>
           <p className="mt-4 text-sm">{formattedDate}</p>
           <input
             type="text"
@@ -24,8 +24,8 @@ export default function Checkout() {
         <div className="checkout-items">
           
         </div>
-        <div className="checkout-price flex align-bottom">
-          <button>Payment</button>
+        <div className="checkout-price flex justify-center">
+          <button className="w-64 fixed bottom-0 py-3 bg-indigo-600 text-white rounded-md">Payment</button>
         </div>
       </div>
     </>

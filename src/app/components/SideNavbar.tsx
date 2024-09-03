@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation';
 export default function SideNavbar() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const pathname = usePathname(); 
+  const pathname = usePathname(); // Get the current path
 
   const handleNavigation = (path: string) => {
     setLoading(true);
@@ -16,13 +16,15 @@ export default function SideNavbar() {
 
   const handleLogout = async () => {
     setLoading(true);
+    
+    sessionStorage.clear();
     await signOut({ redirect: false }); 
     router.push('/signin'); 
   };
 
   return (
     <aside className="w-64 h-full shadow-md bg-indigo-800 text-white fixed">
-      <div className="p-4 text-center text-xl font-bold border-b border-gray-700">
+      <div className="p-4 text-center text-2xl font-bold border-b border-white">
         Campus Game
       </div>
       <nav className="mt-4">

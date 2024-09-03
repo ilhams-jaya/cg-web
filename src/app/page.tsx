@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from './firebase'; 
 import SideNavbar from './components/SideNavbar';
+import toast from 'react-hot-toast';
 
 export default function Home() {
   const { data: session, status } = useSession();
@@ -27,6 +28,7 @@ export default function Home() {
               setIsAdmin(true);
             } else {
               router.push('/stopwatch');
+              toast.error("You are not an admin")
             }
           });
         } else {

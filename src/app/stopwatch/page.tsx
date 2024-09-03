@@ -1,4 +1,4 @@
-'use client';
+"use client";
 import { useState, useEffect } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -10,7 +10,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import SideNavbar from "../components/SideNavbar";
 import Checkout from "../components/Checkout";
-import { auth, db } from "../firebase";
+import { db } from "../firebase";
 import {
   collection,
   addDoc,
@@ -18,15 +18,19 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  query,
+  where,
+  onSnapshot,
 } from "firebase/firestore";
+import { useSession } from "next-auth/react";
 
 interface Stopwatch {
   id: string;
   name: string;
   cost: number;
   running: boolean;
-  time: number; // time in milliseconds
-  startTime?: number; // start time in milliseconds since epoch
+  time: number;
+  startTime?: number | null;
   userId: string;
 }
 
@@ -36,20 +40,48 @@ export default function Stopwatch() {
   const [stopwatches, setStopwatches] = useState<Stopwatch[]>([]);
   const [newStopwatch, setNewStopwatch] = useState({ name: "", cost: 0 });
   const [editStopwatch, setEditStopwatch] = useState<Stopwatch | null>(null);
-  const user = auth.currentUser;
+  const [cart, setCart] = useState<Stopwatch[]>([]);
+  const { data: session } = useSession();
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchStopwatches = async () => {
-      const querySnapshot = await getDocs(collection(db, "stopwatches"));
-      const fetchedStopwatches = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Stopwatch[];
-      setStopwatches(fetchedStopwatches);
+    const fetchUserId = async () => {
+      if (session?.user?.email) {
+        const usersQuery = query(
+          collection(db, "users"),
+          where("email", "==", session.user.email)
+        );
+        const querySnapshot = await getDocs(usersQuery);
+        if (!querySnapshot.empty) {
+          const userDoc = querySnapshot.docs[0];
+          setUserId(userDoc.id);
+        }
+      }
     };
 
-    fetchStopwatches();
-  }, []);
+    fetchUserId();
+  }, [session?.user?.email]);
+
+  useEffect(() => {
+    if (userId) {
+      const q = query(
+        collection(db, "stopwatches"),
+        where("userId", "==", userId)
+      );
+
+      const unsubscribeFirestore = onSnapshot(q, (querySnapshot) => {
+        const stopwatchesData: Stopwatch[] = [];
+        querySnapshot.forEach((doc) => {
+          stopwatchesData.push({ ...doc.data(), id: doc.id } as Stopwatch);
+        });
+        setStopwatches(stopwatchesData);
+      });
+
+      return () => unsubscribeFirestore();
+    } else {
+      setStopwatches([]);
+    }
+  }, [userId]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -71,10 +103,10 @@ export default function Stopwatch() {
   }, []);
 
   const handleSave = async () => {
-    if (newStopwatch.name && newStopwatch.cost && user) {
+    if (newStopwatch.name && newStopwatch.cost && userId) {
       const docRef = await addDoc(collection(db, "stopwatches"), {
         ...newStopwatch,
-        userId: user.uid,
+        userId: userId,
         running: false,
         time: 0,
       });
@@ -83,7 +115,7 @@ export default function Stopwatch() {
         {
           id: docRef.id,
           ...newStopwatch,
-          userId: user.uid,
+          userId: userId,
           running: false,
           time: 0,
         },
@@ -104,7 +136,7 @@ export default function Stopwatch() {
       const updatedStopwatch = {
         ...stopwatch,
         running: !stopwatch.running,
-        startTime: !stopwatch.running ? Date.now() : undefined,
+        startTime: !stopwatch.running ? Date.now() : null,
       };
       await updateDoc(doc(db, "stopwatches", id), updatedStopwatch);
       setStopwatches(
@@ -117,13 +149,11 @@ export default function Stopwatch() {
     await updateDoc(doc(db, "stopwatches", id), {
       time: 0,
       running: false,
-      startTime: undefined,
+      startTime: null,
     });
     setStopwatches(
       stopwatches.map((sw) =>
-        sw.id === id
-          ? { ...sw, time: 0, running: false, startTime: undefined }
-          : sw
+        sw.id === id ? { ...sw, time: 0, running: false, startTime: null } : sw
       )
     );
   };
@@ -139,6 +169,10 @@ export default function Stopwatch() {
       setIsEditModalOpen(false);
       setEditStopwatch(null);
     }
+  };
+
+  const addToCart = (item: Stopwatch) => {
+    setCart([...cart, item]);
   };
 
   const formatTime = (time: number) => {
@@ -165,7 +199,7 @@ export default function Stopwatch() {
           <div className="stopwatch-header flex flex-row justify-between items-center">
             <h1 className="font-bold text-2xl">Stopwatch</h1>
             <button
-              className="px-6 py-3 bg-indigo-800 text-white rounded-md"
+              className="px-6 py-3 bg-indigo-600 text-white rounded-md"
               onClick={() => setIsModalOpen(true)}
             >
               Add Stopwatch
@@ -184,24 +218,30 @@ export default function Stopwatch() {
                 >
                   <FontAwesomeIcon icon={faTrash} />
                 </button>
-                <h2 className="text-lg font-bold mt-2 text-center">{sw.name}</h2>
-                <div className="text-3xl mt-4 mb-2 text-center font-bold">{formatTime(sw.time)}</div>
+                <h2 className="text-lg font-bold mt-2 text-center">
+                  {sw.name}
+                </h2>
+                <div className="text-3xl mt-4 mb-2 text-center font-bold">
+                  {formatTime(sw.time)}
+                </div>
                 <p className="text-gray-600 text-center">Rp{sw.cost}/hour</p>
                 <div className="flex space-x-4 mb-2 mt-2 justify-center">
                   <button
-                    className="text-white bg-indigo-600 py-1 px-2 rounded-md"
+                    className={`${
+                      sw.running ? "bg-red-500" : "bg-green-500"
+                    } text-white px-4 py-2 rounded-md`}
                     onClick={() => handlePlayPause(sw.id)}
                   >
                     <FontAwesomeIcon icon={sw.running ? faPause : faPlay} />
                   </button>
                   <button
-                    className="text-white bg-indigo-600 py-1 px-2 rounded-md"
+                    className="text-white bg-yellow-500 py-2 px-4 rounded-md"
                     onClick={() => handleReset(sw.id)}
                   >
                     <FontAwesomeIcon icon={faRedo} />
                   </button>
                   <button
-                    className="text-white bg-indigo-600 py-1 px-2 rounded-md"
+                    className="text-white bg-blue-500 py-2 px-4 rounded-md"
                     onClick={() => {
                       setEditStopwatch(sw);
                       setIsEditModalOpen(true);
@@ -210,8 +250,9 @@ export default function Stopwatch() {
                     <FontAwesomeIcon icon={faEdit} />
                   </button>
                 </div>
-                <div className="mt-4 flex justify-center items-center">
-                  <button className="text-white px-4 py-2 bg-indigo-600 rounded-md">
+                <div className="flex justify-center">
+                  <button className="text-white bg-indigo-600 py-2 px-4 rounded-md mt-4"
+                  onClick={() => addToCart(sw)}>
                     Add to Cart
                   </button>
                 </div>
@@ -224,146 +265,93 @@ export default function Stopwatch() {
         </div>
       </div>
 
-      {/* Add New Stopwatch Modal */}
       {isModalOpen && (
-        <div className="modal fixed inset-0 bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white text-black p-8 rounded-md w-1/3 border-2">
-            <h2 className="text-2xl font-bold mb-4">Add New Stopwatch</h2>
-            <input
-              type="text"
-              name="name"
-              placeholder="Stopwatch Name"
-              className="border p-2 mb-4 w-full"
-              value={newStopwatch.name}
-              onChange={(e) =>
-                setNewStopwatch({ ...newStopwatch, name: e.target.value })
-              }
-            />
-            <input
-              type="number"
-              name="cost"
-              placeholder="Stopwatch Cost/hour"
-              className="border p-2 mb-4 w-full"
-              value={newStopwatch.cost}
-              onChange={(e) =>
-                setNewStopwatch({
-                  ...newStopwatch,
-                  cost: Number(e.target.value),
-                })
-              }
-            />
-            <div className="flex justify-end">
-              <button
-                className="px-6 py-2 bg-indigo-800 text-white rounded-md mr-4"
-                onClick={handleSave}
-              >
-                Save
-              </button>
-              <button
-                className="px-6 py-2 bg-gray-300 rounded-md"
-                onClick={() => setIsModalOpen(false)}
-              >
-                Cancel
-              </button>
+        <div className="modal fixed inset-0 flex items-center justify-center z-50">
+          <div className="modal-overlay absolute inset-0 bg-gray-900 opacity-50"></div>
+          <div className="modal-container bg-white w-11/12 md:max-w-md mx-auto rounded shadow-lg z-50 overflow-y-auto">
+            <div className="modal-content p-6">
+              <h2 className="text-xl font-bold mb-4">Add New Stopwatch</h2>
+              <input
+                type="text"
+                className="w-full p-2 mb-4 border border-gray-300 rounded text-black"
+                placeholder="Name"
+                value={newStopwatch.name}
+                onChange={(e) =>
+                  setNewStopwatch({ ...newStopwatch, name: e.target.value })
+                }
+              />
+              <input
+                type="number"
+                className="w-full p-2 mb-4 border border-gray-300 rounded text-black"
+                placeholder="Cost per Hour"
+                value={newStopwatch.cost}
+                onChange={(e) =>
+                  setNewStopwatch({
+                    ...newStopwatch,
+                    cost: parseInt(e.target.value, 10),
+                  })
+                }
+              />
+              <div className="flex justify-end">
+                <button
+                  className="bg-gray-500 text-white px-4 py-2 rounded mr-2"
+                  onClick={() => setIsModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="bg-indigo-600 text-white px-4 py-2 rounded"
+                  onClick={handleSave}
+                >
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Edit Stopwatch Modal */}
       {isEditModalOpen && editStopwatch && (
-        <div className="modal fixed inset-0 bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white text-black p-8 rounded-md w-1/3 border-2">
-            <h2 className="text-2xl font-bold mb-4">Edit Stopwatch</h2>
-            <input
-              type="text"
-              name="name"
-              placeholder="Stopwatch Name"
-              className="border p-2 mb-4 w-full"
-              value={editStopwatch.name}
-              onChange={(e) =>
-                setEditStopwatch({ ...editStopwatch, name: e.target.value })
-              }
-            />
-            <input
-              type="number"
-              name="cost"
-              placeholder="Stopwatch Cost/hour"
-              className="border p-2 mb-4 w-full"
-              value={editStopwatch.cost}
-              onChange={(e) =>
-                setEditStopwatch({
-                  ...editStopwatch,
-                  cost: Number(e.target.value),
-                })
-              }
-            />
-            <div className="flex space-x-4">
+        <div className="modal fixed inset-0 flex items-center justify-center z-50">
+          <div className="modal-overlay absolute inset-0 bg-gray-900 opacity-50"></div>
+          <div className="modal-container bg-white w-11/12 md:max-w-md mx-auto rounded shadow-lg z-50 overflow-y-auto">
+            <div className="modal-content p-6">
+              <h2 className="text-xl font-bold mb-4">Edit Stopwatch</h2>
               <input
-                type="number"
-                name="hours"
-                placeholder="Hours"
-                className="border p-2 mb-4 w-full"
-                value={Math.floor(editStopwatch.time / 3600000)}
+                type="text"
+                className="w-full p-2 mb-4 border border-gray-300 rounded text-black"
+                placeholder="Name"
+                value={editStopwatch.name}
                 onChange={(e) =>
-                  setEditStopwatch({
-                    ...editStopwatch,
-                    time: parseTime(
-                      Number(e.target.value),
-                      Math.floor((editStopwatch.time % 3600000) / 60000),
-                      Math.floor((editStopwatch.time % 60000) / 1000)
-                    ),
-                  })
+                  setEditStopwatch({ ...editStopwatch, name: e.target.value })
                 }
               />
               <input
                 type="number"
-                name="minutes"
-                placeholder="Minutes"
-                className="border p-2 mb-4 w-full"
-                value={Math.floor((editStopwatch.time % 3600000) / 60000)}
+                className="w-full p-2 mb-4 border border-gray-300 rounded text-black"
+                placeholder="Cost per Hour"
+                value={editStopwatch.cost}
                 onChange={(e) =>
                   setEditStopwatch({
                     ...editStopwatch,
-                    time: parseTime(
-                      Math.floor(editStopwatch.time / 3600000),
-                      Number(e.target.value),
-                      Math.floor((editStopwatch.time % 60000) / 1000)
-                    ),
+                    cost: parseInt(e.target.value, 10),
                   })
                 }
               />
-              <input
-                type="number"
-                name="seconds"
-                placeholder="Seconds"
-                className="border p-2 mb-4 w-full"
-                value={Math.floor((editStopwatch.time % 60000) / 1000)}
-                onChange={(e) =>
-                  setEditStopwatch({
-                    ...editStopwatch,
-                    time: parseTime(
-                      Math.floor(editStopwatch.time / 3600000),
-                      Math.floor((editStopwatch.time % 3600000) / 60000),
-                      Number(e.target.value)
-                    ),
-                  })
-                }
-              />
-            </div>
-            <div className="flex justify-end">
-              <button
-                className="px-6 py-2 bg-indigo-800 text-white rounded-md mr-4"
-                onClick={handleEditStopwatch}
-              >
-                Save
-              </button>
-              <button
-                className="px-6 py-2 bg-gray-300 rounded-md"
-                onClick={() => setIsEditModalOpen(false)}
-              >
-                Cancel
-              </button>
+              <div className="flex justify-end">
+                <button
+                  className="bg-gray-500 text-white px-4 py-2 rounded mr-2"
+                  onClick={() => setIsEditModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="bg-indigo-600 text-white px-4 py-2 rounded"
+                  onClick={handleEditStopwatch}
+                >
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -371,5 +359,3 @@ export default function Stopwatch() {
     </>
   );
 }
-
-Stopwatch.requireAuth = true;
