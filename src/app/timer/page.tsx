@@ -1,4 +1,3 @@
-
 "use client";
 import SideNavbar from "../components/SideNavbar";
 import Checkout from "../components/Checkout";
@@ -26,6 +25,7 @@ import {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import Swal from "sweetalert2";
 import { useCart } from "react-use-cart";
+
 interface Timer {
   id: string;
   name: string;
@@ -36,9 +36,19 @@ interface Timer {
   userId: string;
 }
 
+interface CartItem {
+  userId: string;
+  itemId: string;
+  name: string;
+  price: number;
+  imageUrl: string;
+  quantity: number;
+}
+
 export default function Timer() {
   const { data: session } = useSession();
   const [timers, setTimers] = useState<Timer[]>([]);
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editTimerId, setEditTimerId] = useState<string | null>(null);
   const [newTimer, setNewTimer] = useState({
@@ -50,9 +60,7 @@ export default function Timer() {
   });
   const [userId, setUserId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const { addItem } = useCart();
 
-  // Fetch user ID
   useEffect(() => {
     const fetchUserId = async () => {
       if (session?.user?.email) {
@@ -71,7 +79,6 @@ export default function Timer() {
     fetchUserId();
   }, [session?.user?.email]);
 
-  // Fetch timers from Firestore
   useEffect(() => {
     if (userId) {
       const q = query(collection(db, "timers"), where("userId", "==", userId));
@@ -90,7 +97,6 @@ export default function Timer() {
     }
   }, [userId]);
 
-  // Realtime timer update
   useEffect(() => {
     const interval = setInterval(() => {
       setTimers((prevTimers) =>
@@ -118,11 +124,10 @@ export default function Timer() {
 
   const handleTimerEnd = (timer: Timer) => {
     if (audioRef.current) {
-      audioRef.current.muted = false; // Unmute audio when timer ends
+      audioRef.current.muted = false;
       audioRef.current.play();
     }
 
-    // Show SweetAlert2 modal
     Swal.fire({
       title: `Timer "${timer.name}" has finished!`,
       text: "Click OK to stop the notification.",
@@ -131,7 +136,6 @@ export default function Timer() {
       allowEscapeKey: false,
       confirmButtonText: "OK",
     }).then(() => {
-      // Stop the sound after clicking OK
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
@@ -160,7 +164,6 @@ export default function Timer() {
         await addDoc(collection(db, "timers"), timerData);
       }
 
-      // Reset form after saving
       setNewTimer({ name: "", cost: 0, hours: 0, minutes: 0, seconds: 0 });
       setIsModalOpen(false);
       setEditTimerId(null);
@@ -186,7 +189,7 @@ export default function Timer() {
       });
 
       if (audioRef.current) {
-        audioRef.current.muted = true; // Mute audio initially
+        audioRef.current.muted = true;
         audioRef.current.play().catch(() => {
           // Handle play rejection silently
         });
@@ -223,7 +226,27 @@ export default function Timer() {
     await deleteDoc(doc(db, "timers", timerId));
   };
 
-  
+  const addToCart = async (timer: Timer) => {
+    if (userId) {
+      const price = Number(((timer.cost / 3600) * timer.time).toFixed(0));
+      const cartItem: CartItem = {
+        userId: userId,
+        itemId: timer.id,
+        name: timer.name,
+        price: price,
+        imageUrl: "",
+        quantity: 1,
+      };
+
+      try {
+        await addDoc(collection(db, "cart"), cartItem);
+
+        setCart((prevCart) => [...prevCart, cartItem]);
+      } catch (error) {
+        console.error("Error adding to cart: ", error);
+      }
+    }
+  };
 
   return (
     <>
@@ -235,67 +258,76 @@ export default function Timer() {
           <div className="timer-header flex flex-row justify-between items-center mb-4">
             <h1 className="font-bold text-2xl">Timer</h1>
             <button
-              className="px-6 py-3 bg-indigo-800 text-white rounded-md"
+              className="px-6 py-3 bg-indigo-600 text-white rounded-md"
               onClick={() => setIsModalOpen(true)}
             >
               Add Timer
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-4">
-            {timers.map((timer) => (
-              <div
-                key={timer.id}
-                className="border rounded-md p-4 relative bg-white shadow"
-              >
-                <button
-                  className="absolute top-2 right-2 text-red-600"
-                  onClick={() => handleDelete(timer.id!)}
+          <div className="timers-container grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-8">
+            {timers
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((timer) => (
+                <div
+                  key={timer.id}
+                  className={`border-4 rounded-md p-4 relative bg-white shadow ${
+                    timer.running ? "border-indigo-400" : "border-gray-200"
+                  }`} 
                 >
-                  <FontAwesomeIcon icon={faTrash} />
-                </button>
-                <h2 className="text-center mt-4 text-lg font-bold">
-                  {timer.name}
-                </h2>
-                <p className="text-center text-md text-gray-600">
-                  Rp.{timer.cost}/hour
-                </p>
-                <div className="text-3xl font-bold text-center my-4">
-                  {new Date(timer.time * 1000).toISOString().substr(11, 8)}
-                </div>
-                <div className="flex space-x-2 justify-center">
                   <button
-                    className={`${
-                      timer.running ? "bg-red-500" : "bg-green-500"
-                    } text-white px-4 py-2 rounded-md`}
-                    onClick={() => handlePlayPause(timer)}
+                    className="absolute top-2 right-2 text-red-600"
+                    onClick={() => handleDelete(timer.id!)}
                   >
-                    <FontAwesomeIcon icon={timer.running ? faPause : faPlay} />
+                    <FontAwesomeIcon icon={faTrash} />
                   </button>
-                  <button
-                    className="bg-yellow-500 text-white px-4 py-2 rounded-md"
-                    onClick={() => handleReset(timer)}
-                  >
-                    <FontAwesomeIcon icon={faRedo} />
-                  </button>
-                  <button
-                    className="bg-blue-500 text-white px-4 py-2 rounded-md"
-                    onClick={() => handleEdit(timer)}
-                  >
-                    <FontAwesomeIcon icon={faEdit} />
-                  </button>
-                </div>
+                  <h2 className="text-center mt-4 text-lg font-bold">
+                    {timer.name}
+                  </h2>
+                  <p className="text-center text-md text-gray-600">
+                    Rp.{timer.cost}/hour
+                  </p>
+                  <div className="text-3xl font-bold text-center my-4">
+                    {new Date(timer.time * 1000).toISOString().substr(11, 8)}
+                  </div>
+                  <div className="flex space-x-2 justify-center">
+                    <button
+                      className={`${
+                        timer.running ? "bg-red-500" : "bg-green-500"
+                      } text-white px-4 py-2 rounded-md`}
+                      onClick={() => handlePlayPause(timer)}
+                    >
+                      <FontAwesomeIcon
+                        icon={timer.running ? faPause : faPlay}
+                      />
+                    </button>
+                    <button
+                      className="bg-yellow-500 text-white px-4 py-2 rounded-md"
+                      onClick={() => handleReset(timer)}
+                    >
+                      <FontAwesomeIcon icon={faRedo} />
+                    </button>
+                    <button
+                      className="bg-blue-500 text-white px-4 py-2 rounded-md"
+                      onClick={() => handleEdit(timer)}
+                    >
+                      <FontAwesomeIcon icon={faEdit} />
+                    </button>
+                  </div>
 
-                <div className="flex justify-center">
-                  <button className="mt-4 bg-indigo-600 text-white px-4 py-2 rounded-md">
-                    Add to Cart
-                  </button>
+                  <div className="flex justify-center">
+                    <button
+                      className="mt-4 bg-indigo-600 text-white px-4 py-2 rounded-md"
+                      onClick={() => addToCart(timer)}
+                    >
+                      Add to Cart
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </div>
         </div>
-        <div className="w-2/6">
+        <div className="w-1/4">
           <Checkout />
         </div>
       </div>

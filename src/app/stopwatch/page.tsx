@@ -23,6 +23,7 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { useSession } from "next-auth/react";
+import toast from "react-hot-toast";
 
 interface Stopwatch {
   id: string;
@@ -34,13 +35,22 @@ interface Stopwatch {
   userId: string;
 }
 
+interface CartItem {
+  userId: string;
+  itemId: string;
+  name: string;
+  price: number;
+  imageUrl: string;
+  quantity: number;
+}
+
 export default function Stopwatch() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [stopwatches, setStopwatches] = useState<Stopwatch[]>([]);
   const [newStopwatch, setNewStopwatch] = useState({ name: "", cost: 0 });
   const [editStopwatch, setEditStopwatch] = useState<Stopwatch | null>(null);
-  const [cart, setCart] = useState<Stopwatch[]>([]);
+  const [cart, setCart] = useState<CartItem[]>([]);
   const { data: session } = useSession();
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -171,10 +181,6 @@ export default function Stopwatch() {
     }
   };
 
-  const addToCart = (item: Stopwatch) => {
-    setCart([...cart, item]);
-  };
-
   const formatTime = (time: number) => {
     const hours = Math.floor(time / 3600000);
     const minutes = Math.floor((time % 3600000) / 60000);
@@ -187,6 +193,29 @@ export default function Stopwatch() {
 
   const parseTime = (hours: number, minutes: number, seconds: number) => {
     return hours * 3600000 + minutes * 60000 + seconds * 1000;
+  };
+
+  const addToCart = async (sw: Stopwatch) => {
+    if (userId) {
+      const price = Number(((sw.cost / 3600000) * sw.time).toFixed(0));
+      const cartItem: CartItem = {
+        userId: userId,
+        itemId: sw.id,
+        name: sw.name,
+        price: price,
+        imageUrl: "",
+        quantity: 1,
+      };
+
+      try {
+        await addDoc(collection(db, "cart"), cartItem);
+
+        setCart([...cart, cartItem]);
+        toast.success(`${sw.name} has been added to your cart.`);
+      } catch (error) {
+        console.error("Error adding to cart: ", error);
+      }
+    }
   };
 
   return (
@@ -206,11 +235,15 @@ export default function Stopwatch() {
             </button>
           </div>
 
-          <div className="stopwatch-container grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-8">
-            {stopwatches.map((sw) => (
+          <div className="stopwatch-container grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-8">
+            {stopwatches
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((sw) => (
               <div
                 key={sw.id}
-                className="stopwatch-card border rounded-md p-4 relative"
+                className={`stopwatch-card border-4 rounded-md p-4 relative ${
+                  sw.running ? "border-indigo-400" : "border-gray-200"
+                }`}
               >
                 <button
                   className="absolute top-2 right-2 text-red-600"
@@ -251,8 +284,10 @@ export default function Stopwatch() {
                   </button>
                 </div>
                 <div className="flex justify-center">
-                  <button className="text-white bg-indigo-600 py-2 px-4 rounded-md mt-4"
-                  onClick={() => addToCart(sw)}>
+                  <button
+                    className="text-white bg-indigo-600 py-2 px-4 rounded-md mt-4"
+                    onClick={() => addToCart(sw)}
+                  >
                     Add to Cart
                   </button>
                 </div>
@@ -260,7 +295,7 @@ export default function Stopwatch() {
             ))}
           </div>
         </div>
-        <div className="w-2/6">
+        <div className="w-1/4">
           <Checkout />
         </div>
       </div>
@@ -270,7 +305,9 @@ export default function Stopwatch() {
           <div className="modal-overlay absolute inset-0 bg-gray-900 opacity-50"></div>
           <div className="modal-container bg-white w-11/12 md:max-w-md mx-auto rounded shadow-lg z-50 overflow-y-auto">
             <div className="modal-content p-6">
-              <h2 className="text-xl font-bold mb-4">Add New Stopwatch</h2>
+              <h2 className="text-xl font-bold mb-4 text-black">
+                Add New Stopwatch
+              </h2>
               <input
                 type="text"
                 className="w-full p-2 mb-4 border border-gray-300 rounded text-black"
@@ -284,7 +321,7 @@ export default function Stopwatch() {
                 type="number"
                 className="w-full p-2 mb-4 border border-gray-300 rounded text-black"
                 placeholder="Cost per Hour"
-                value={newStopwatch.cost}
+                value={newStopwatch.cost || ""}
                 onChange={(e) =>
                   setNewStopwatch({
                     ...newStopwatch,
@@ -316,7 +353,9 @@ export default function Stopwatch() {
           <div className="modal-overlay absolute inset-0 bg-gray-900 opacity-50"></div>
           <div className="modal-container bg-white w-11/12 md:max-w-md mx-auto rounded shadow-lg z-50 overflow-y-auto">
             <div className="modal-content p-6">
-              <h2 className="text-xl font-bold mb-4">Edit Stopwatch</h2>
+              <h2 className="text-xl font-bold mb-4 text-black">
+                Edit Stopwatch
+              </h2>
               <input
                 type="text"
                 className="w-full p-2 mb-4 border border-gray-300 rounded text-black"

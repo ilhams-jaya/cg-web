@@ -20,12 +20,13 @@ import Checkout from "../components/Checkout";
 import Image from "next/image";
 import { app } from "../firebase";
 import { useSession } from "next-auth/react";
-import { useCart } from "react-use-cart";
+import toast from "react-hot-toast";
 
 interface MenuData {
   id?: string;
   name: string;
   price: string;
+  stock: string;
   imageUrl: string;
   userId: string;
 }
@@ -33,6 +34,7 @@ interface MenuData {
 interface MenuFormData {
   name: string;
   price: string;
+  stock: string;
   image: File | null;
 }
 
@@ -45,9 +47,9 @@ export default function Menu() {
   const [menuData, setMenuData] = useState<MenuFormData>({
     name: "",
     price: "",
+    stock: "",
     image: null,
   });
-  const { addItem } = useCart();
 
   const db = getFirestore(app);
   const storage = getStorage(app);
@@ -121,12 +123,13 @@ export default function Menu() {
         await addDoc(collection(db, "menus"), {
           name: menuData.name,
           price: menuData.price,
+          stock: menuData.stock,
           imageUrl: imageUrl,
           userId: userId, 
         });
 
         setIsModalOpen(false);
-        setMenuData({ name: "", price: "", image: null });
+        setMenuData({ name: "", price: "", stock:"", image: null });
       } catch (error) {
         console.error("Error adding menu: ", error);
       }
@@ -141,6 +144,7 @@ export default function Menu() {
       setMenuData({
         name: menuToEdit.name,
         price: menuToEdit.price,
+        stock: menuToEdit.stock,
         image: null,
       });
       setIsEditing(true);
@@ -155,7 +159,6 @@ export default function Menu() {
         let imageUrl = menus.find((menu) => menu.id === editMenuId)?.imageUrl;
 
         if (menuData.image) {
-          // Mengunggah gambar baru ke Firebase Storage
           const storageRef = ref(storage, `images/${menuData.image.name}`);
           await uploadBytes(storageRef, menuData.image);
           imageUrl = await getDownloadURL(storageRef);
@@ -165,6 +168,7 @@ export default function Menu() {
           await updateDoc(doc(db, "menus", editMenuId), {
             name: menuData.name,
             price: menuData.price,
+            stock: menuData.stock,
             imageUrl: imageUrl,
             userId: userId, 
           });
@@ -173,7 +177,7 @@ export default function Menu() {
         setIsModalOpen(false);
         setIsEditing(false);
         setEditMenuId(null);
-        setMenuData({ name: "", price: "", image: null });
+        setMenuData({ name: "", price: "", stock: "", image: null });
       } catch (error) {
         console.error("Error updating menu: ", error);
       }
@@ -190,16 +194,45 @@ export default function Menu() {
     }
   };
 
+  const handleAddToCart = async (menu: MenuData) => {
+    try {
+      if (!userId) {
+        alert("You need to be logged in to add items to the cart.");
+        return;
+      }
+  
+      // Cek stok item sebelum menambahkan ke cart
+      if (parseInt(menu.stock) === 0) {
+        toast.error(`Sorry, ${menu.name} is out of stock.`);
+        return;
+      }
+  
+      await addDoc(collection(db, "cart"), {
+        userId: userId,
+        itemId: menu.id,
+        name: menu.name,
+        price: menu.price,
+        imageUrl: menu.imageUrl,
+        quantity: 1,
+      });
+  
+      toast.success(`${menu.name} has been added to your cart.`);
+    } catch (error) {
+      toast.error(`Failed to add ${menu.name}`);
+    }
+  };
+  
+  
   
 
   return (
     <>
-      <div className="flex bg-white text-indigo-900 h-full">
+      <div className="flex bg-white text-indigo-900 min-h-screen">
         <div className="w-64">
           <SideNavbar />
         </div>
-        <div className="menu flex-grow p-8">
-          <div className="menu-header flex flex-row justify-between items-center">
+        <div className="flex-grow p-8">
+          <div className="menu-header flex flex-row justify-between items-center mb-4">
             <h1 className="font-bold text-2xl">Menu</h1>
             <button
               className="px-6 py-3 bg-indigo-600 text-white rounded-md"
@@ -209,7 +242,7 @@ export default function Menu() {
             </button>
           </div>
 
-          <div className="menu-container grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-8">
+          <div className="menu-container grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-8">
             {menus.map((menu) => (
               <div
                 key={menu.id}
@@ -224,15 +257,17 @@ export default function Menu() {
                 <Image
                   src={menu.imageUrl}
                   alt={menu.name}
-                  className="w-full h-48 object-cover mb-4"
+                  className=" object-cover mb-4 h-40"
                   width={150}
                   height={150}
                 />
                 <h2 className="text-lg font-bold">{menu.name}</h2>
                 <p className="text-gray-600">Rp{menu.price}</p>
+                <p className="text-gray-500">Stock : {menu.stock}</p>
                 <div className="mt-4 flex justify-between items-center">
                   <button 
                   className="text-white px-4 py-2 bg-indigo-600 rounded-md"
+                  onClick={() => handleAddToCart(menu)}
                   >
                     Add to Cart
                   </button>
@@ -247,7 +282,7 @@ export default function Menu() {
             ))}
           </div>
         </div>
-        <div className="w-2/6">
+        <div className="w-1/4">
           <Checkout />
         </div>
       </div>
@@ -272,6 +307,14 @@ export default function Menu() {
               placeholder="Menu Price"
               className="border p-2 mb-4 w-full"
               value={menuData.price}
+              onChange={handleInputChange}
+            />
+            <input
+              type="number"
+              name="stock"
+              placeholder="Stock"
+              className="border p-2 mb-4 w-full"
+              value={menuData.stock}
               onChange={handleInputChange}
             />
             <input

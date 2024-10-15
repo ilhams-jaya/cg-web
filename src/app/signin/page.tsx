@@ -14,12 +14,10 @@ export default function Signin() {
 
   const handleSignIn = async () => {
     try {
-      // Cek apakah pengguna dengan email yang diberikan ada di Firestore
       const q = query(collection(db, 'users'), where('email', '==', email));
       const querySnapshot = await getDocs(q);
 
       if (!querySnapshot.empty) {
-        // Ambil data pengguna dari snapshot
         const userDoc = querySnapshot.docs[0];
         const userData = userDoc.data();
 
@@ -79,7 +77,7 @@ export default function Signin() {
                   Password
                 </label>
                 <div className="text-sm">
-                  <div onClick={() => router.push('/forgot-password')} className="cursor-pointer font-semibold text-indigo-400 hover:text-indigo-300">
+                  <div onClick={() => router.push('forgot-password')} className="cursor-pointer font-semibold text-indigo-400 hover:text-indigo-300">
                     Forgot password?
                   </div>
                 </div>
