@@ -1,44 +1,18 @@
-import Menu from "../views/Menu";
+// src/views/Menu.tsx
+'use client';
 
-/*"use client";
 import React, { useState, useEffect } from "react";
-import {
-  getFirestore,
-  collection,
-  addDoc,
-  query,
-  where,
-  onSnapshot,
-  deleteDoc,
-  doc,
-  updateDoc,
-  getDocs
-} from "firebase/firestore";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faEdit, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { useSession } from "next-auth/react";
 import SideNavbar from "../components/SideNavbar";
 import Checkout from "../components/Checkout";
+import { MenuData, MenuFormData } from "../types/menuTypes";
+import { getMenus, createMenu, modifyMenu, removeMenu } from "../controllers/menuController";
 import Image from "next/image";
-import { app } from "../firebase";
-import { useSession } from "next-auth/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faEdit, faTrash } from "@fortawesome/free-solid-svg-icons";
 import toast from "react-hot-toast";
-
-interface MenuData {
-  id?: string;
-  name: string;
-  price: string;
-  stock: string;
-  imageUrl: string;
-  userId: string;
-}
-
-interface MenuFormData {
-  name: string;
-  price: string;
-  stock: string;
-  image: File | null;
-}
+import { addDoc, collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { db } from "../firebase";
 
 export default function Menu() {
   const { data: session } = useSession();
@@ -46,15 +20,7 @@ export default function Menu() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editMenuId, setEditMenuId] = useState<string | null>(null);
-  const [menuData, setMenuData] = useState<MenuFormData>({
-    name: "",
-    price: "",
-    stock: "",
-    image: null,
-  });
-
-  const db = getFirestore(app);
-  const storage = getStorage(app);
+  const [menuData, setMenuData] = useState<MenuFormData>({ name: "", price: "", stock: "", image: null });
   const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -73,7 +39,7 @@ export default function Menu() {
     };
 
     fetchUserId();
-  }, [session?.user?.email, db]);
+  }, [session?.user?.email]);
 
   useEffect(() => {
     if (userId) {
@@ -94,105 +60,60 @@ export default function Menu() {
     } else {
       setMenus([]); 
     }
-  }, [userId, db]);
+  }, [userId]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files ? e.target.files[0] : null;
-    if (file && file.size <= 2048576) {
-      setMenuData({ ...menuData, image: file });
-    } else {
-      alert("Image size must be less than 2 MB");
-    }
+    if (file && file.size <= 2048576) setMenuData({ ...menuData, image: file });
+    else alert("Image size must be less than 2 MB");
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setMenuData({ ...menuData, [e.target.name]: e.target.value });
   };
 
-  const handleAddMenu = async () => {
-    if (menuData.name && menuData.price && menuData.image) {
-      try {
-        if (!userId) {
-          alert("You need to be logged in to add a menu.");
-          return;
-        }
+  const handleSaveMenu = async () => {
+    if (!userId) {
+      alert("You need to be logged in to add a menu.");
+      return;
+    }
 
-        const storageRef = ref(storage, `images/${menuData.image.name}`);
-        await uploadBytes(storageRef, menuData.image);
-
-        const imageUrl = await getDownloadURL(storageRef);
-
-        await addDoc(collection(db, "menus"), {
-          name: menuData.name,
-          price: menuData.price,
-          stock: menuData.stock,
-          imageUrl: imageUrl,
-          userId: userId, 
-        });
-
-        setIsModalOpen(false);
-        setMenuData({ name: "", price: "", stock:"", image: null });
-      } catch (error) {
-        console.error("Error adding menu: ", error);
+    try {
+      if (isEditing && editMenuId) {
+        await modifyMenu(editMenuId, menuData, userId);
+        toast.success("Menu updated successfully.");
+      } else {
+        await createMenu(menuData, userId);
+        toast.success("Menu added successfully.");
       }
-    } else {
-      alert("Please fill in all fields and ensure the image is less than 2 MB.");
+
+      setIsModalOpen(false);
+      setMenuData({ name: "", price: "", stock: "", image: null });
+      setIsEditing(false);
+      setEditMenuId(null);
+    } catch (error) {
+      console.error("Error saving menu:", error);
+      toast.error("Failed to save menu.");
     }
   };
 
   const handleEditMenu = (menuId: string) => {
     const menuToEdit = menus.find((menu) => menu.id === menuId);
     if (menuToEdit) {
-      setMenuData({
-        name: menuToEdit.name,
-        price: menuToEdit.price,
-        stock: menuToEdit.stock,
-        image: null,
-      });
+      setMenuData({ name: menuToEdit.name, price: menuToEdit.price, stock: menuToEdit.stock, image: null });
       setIsEditing(true);
       setEditMenuId(menuId);
       setIsModalOpen(true);
     }
   };
 
-  const handleUpdateMenu = async () => {
-    if (menuData.name && menuData.price && editMenuId) {
-      try {
-        let imageUrl = menus.find((menu) => menu.id === editMenuId)?.imageUrl;
-
-        if (menuData.image) {
-          const storageRef = ref(storage, `images/${menuData.image.name}`);
-          await uploadBytes(storageRef, menuData.image);
-          imageUrl = await getDownloadURL(storageRef);
-        }
-
-        if (userId) {
-          await updateDoc(doc(db, "menus", editMenuId), {
-            name: menuData.name,
-            price: menuData.price,
-            stock: menuData.stock,
-            imageUrl: imageUrl,
-            userId: userId, 
-          });
-        }
-
-        setIsModalOpen(false);
-        setIsEditing(false);
-        setEditMenuId(null);
-        setMenuData({ name: "", price: "", stock: "", image: null });
-      } catch (error) {
-        console.error("Error updating menu: ", error);
-      }
-    } else {
-      alert("Please fill in all fields and ensure the image is less than 2 MB.");
-    }
-  };
-
   const handleDeleteMenu = async (menuId: string) => {
     try {
-      await deleteDoc(doc(db, "menus", menuId));
+      await removeMenu(menuId);
+      toast.success("Menu deleted successfully.");
     } catch (error) {
-      console.error("Error deleting menu: ", error);
+      console.error("Error deleting menu:", error);
+      toast.error("Failed to delete menu.");
     }
   };
 
@@ -223,9 +144,6 @@ export default function Menu() {
       toast.error(`Failed to add ${menu.name}`);
     }
   };
-  
-  
-  
 
   return (
     <>
@@ -246,10 +164,7 @@ export default function Menu() {
 
           <div className="menu-container grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-8">
             {menus.map((menu) => (
-              <div
-                key={menu.id}
-                className="menu-card border rounded-md p-4 relative"
-              >
+              <div key={menu.id} className="menu-card border rounded-md p-4 relative">
                 <button
                   className="absolute top-2 right-2 text-red-600"
                   onClick={() => handleDeleteMenu(menu.id!)}
@@ -259,7 +174,7 @@ export default function Menu() {
                 <Image
                   src={menu.imageUrl}
                   alt={menu.name}
-                  className=" object-cover mb-4 h-40"
+                  className="object-cover mb-4 h-40"
                   width={150}
                   height={150}
                 />
@@ -267,9 +182,9 @@ export default function Menu() {
                 <p className="text-gray-600">Rp{menu.price}</p>
                 <p className="text-gray-500">Stock : {menu.stock}</p>
                 <div className="mt-4 flex justify-between items-center">
-                  <button 
-                  className="text-white px-4 py-2 bg-indigo-600 rounded-md"
-                  onClick={() => handleAddToCart(menu)}
+                  <button
+                    className="text-white px-4 py-2 bg-indigo-600 rounded-md"
+                    onClick={() => handleAddToCart(menu)}
                   >
                     Add to Cart
                   </button>
@@ -328,14 +243,14 @@ export default function Menu() {
               {isEditing ? (
                 <button
                   className="px-6 py-2 bg-indigo-800 text-white rounded-md mr-4"
-                  onClick={handleUpdateMenu}
+                  onClick={handleSaveMenu}
                 >
                   Update
                 </button>
               ) : (
                 <button
                   className="px-6 py-2 bg-indigo-800 text-white rounded-md mr-4"
-                  onClick={handleAddMenu}
+                  onClick={handleSaveMenu}
                 >
                   Save
                 </button>
@@ -355,11 +270,3 @@ export default function Menu() {
 }
 
 Menu.requireAuth = true;
-*/
-export default function MenuPage() {
-  return (
-    <div>
-      <Menu/>
-    </div>
-  );
-}

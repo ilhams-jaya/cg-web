@@ -1,36 +1,19 @@
-import TransactionView from "../views/TransactionView";
-
-/*'use client';
-
+// src/views/TransactionView.tsx
+'use client';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  Timestamp,
-} from 'firebase/firestore';
-import dayjs from 'dayjs'; 
 import SideNavbar from '../components/SideNavbar';
+import { fetchUserTransactions, filterTransactions } from '../controllers/transactionController';
+import dayjs from 'dayjs';
 import { redirect } from 'next/navigation';
-import { db } from '../firebase';
+import { TransactionData } from '../models/transactionModel'; // pastikan ini diimpor
 
-interface TransactionData {
-  id: string;
-  custName: string;
-  paymentType: string;
-  time: Timestamp;
-  total: number;
-}
-
-export default function Transaction() {
+export default function TransactionView() {
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<TransactionData[]>([]);
   const [sortType, setSortType] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string>(dayjs().format('YYYY-MM-DD')); 
-  const [totalNominal, setTotalNominal] = useState<number>(0); 
+  const [selectedDate, setSelectedDate] = useState(dayjs().format('YYYY-MM-DD'));
+  const [totalNominal, setTotalNominal] = useState<number>(0);
   const { data: session } = useSession({
     required: true,
     onUnauthenticated() {
@@ -39,71 +22,27 @@ export default function Transaction() {
   });
 
   useEffect(() => {
-    const fetchUserId = async () => {
+    const fetchData = async () => {
       if (session?.user?.email) {
-        const usersQuery = query(
-          collection(db, 'users'),
-          where('email', '==', session.user.email)
-        );
-        const querySnapshot = await getDocs(usersQuery);
-        if (!querySnapshot.empty) {
-          const userDoc = querySnapshot.docs[0];
-          setUserId(userDoc.id);
-        }
+        const { transactions, totalNominal = 0 } = await fetchUserTransactions(session.user.email);
+        setTransactions(transactions);
+        setFilteredTransactions(transactions);
+        setTotalNominal(totalNominal || 0); // Pastikan totalNominal memiliki nilai 0 jika undefined
       }
     };
 
-    fetchUserId();
+    fetchData();
   }, [session?.user?.email]);
 
-  const fetchAllTransactions = useCallback(async () => {
-    if (userId) {
-      const q = query(collection(db, 'transactions'), where('userId', '==', userId));
-      const querySnapshot = await getDocs(q);
-      const allTransactions: TransactionData[] = [];
-
-      querySnapshot.forEach((doc) => {
-        allTransactions.push({
-          id: doc.id,
-          ...doc.data(),
-        } as TransactionData);
-      });
-
-      setTransactions(allTransactions);
-      setFilteredTransactions(allTransactions); 
-      updateTotalNominal(allTransactions); 
-    }
-  }, [userId]); 
-
-  useEffect(() => {
-    fetchAllTransactions();
-  }, [fetchAllTransactions]);
-
-  const updateTotalNominal = (data: TransactionData[]) => {
-    const total = data.reduce((sum, transaction) => sum + transaction.total, 0);
-    setTotalNominal(total);
-  };
-
-  const filterTransactions = useCallback(() => {
-    let filtered = transactions;
-
-    if (sortType) {
-      filtered = filtered.filter((t) => t.paymentType === sortType);
-    }
-
-    if (selectedDate) {
-      filtered = filtered.filter((t) =>
-        dayjs((t.time as Timestamp).toDate()).format('YYYY-MM-DD') === selectedDate
-      );
-    }
-
+  const applyFilter = useCallback(() => {
+    const { filtered, totalNominal = 0 } = filterTransactions(transactions, sortType, selectedDate);
     setFilteredTransactions(filtered);
-    updateTotalNominal(filtered); 
+    setTotalNominal(totalNominal || 0); // Pastikan totalNominal memiliki nilai 0 jika undefined
   }, [transactions, sortType, selectedDate]);
 
   useEffect(() => {
-    filterTransactions();
-  }, [sortType, selectedDate, filterTransactions]);
+    applyFilter();
+  }, [sortType, selectedDate, applyFilter]);
 
   return (
     <div className="flex min-h-screen bg-white text-black">
@@ -115,11 +54,7 @@ export default function Transaction() {
         <div className="flex flex-row mb-4">
           <div className="mr-4">
             <label className="mr-2">Filter by Payment Method:</label>
-            <select
-              value={sortType || ''}
-              onChange={(e) => setSortType(e.target.value)}
-              className="p-2 border border-gray-300 rounded"
-            >
+            <select value={sortType || ''} onChange={(e) => setSortType(e.target.value)} className="p-2 border border-gray-300 rounded">
               <option value="">All</option>
               <option value="QRIS">QRIS</option>
               <option value="Cash">Cash</option>
@@ -165,14 +100,4 @@ export default function Transaction() {
   );
 }
 
-Transaction.requireAuth = true;
-*/
-
-export default function Transaction() {
-  return (
-    <div>
-      <TransactionView/>
-    </div>
-  );
-}
-
+TransactionView.requireAuth = true;

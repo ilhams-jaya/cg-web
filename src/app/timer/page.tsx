@@ -24,7 +24,8 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import Swal from "sweetalert2";
-import { useCart } from "react-use-cart";
+import Countdown, { CountdownRenderProps } from "react-countdown";
+import dayjs from "dayjs";
 
 interface Timer {
   id: string;
@@ -60,6 +61,14 @@ export default function Timer() {
   });
   const [userId, setUserId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const timerIntervals = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  useEffect(() => {
+    if (audioRef.current) {
+      console.log("Audio source set to:", audioRef.current.src);
+    }
+  }, []);
 
   useEffect(() => {
     const fetchUserId = async () => {
@@ -83,51 +92,50 @@ export default function Timer() {
     if (userId) {
       const q = query(collection(db, "timers"), where("userId", "==", userId));
 
-      const unsubscribeFirestore = onSnapshot(q, (querySnapshot) => {
-        const timerData: Timer[] = [];
-        querySnapshot.forEach((doc) => {
-          timerData.push({ ...doc.data(), id: doc.id } as Timer);
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const fetchedTimers: Timer[] = [];
+        snapshot.forEach((doc) => {
+          fetchedTimers.push({ ...doc.data(), id: doc.id } as Timer);
         });
-        setTimers(timerData);
+        setTimers(fetchedTimers);
       });
 
-      return () => unsubscribeFirestore();
+      return () => unsubscribe();
     } else {
       setTimers([]);
     }
   }, [userId]);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
+  useEffect(() => { 
+    if (intervalRef.current) clearInterval(intervalRef.current);
+  
+    intervalRef.current = setInterval(() => {
       setTimers((prevTimers) =>
         prevTimers.map((timer) => {
-          if (timer.running) {
-            const elapsedTime = Math.floor(
-              (Date.now() - (timer.startTime || 0)) / 1000
-            );
-            const newTime = timer.time - elapsedTime;
-
-            if (newTime <= 0) {
-              handleTimerEnd(timer);
-              return { ...timer, time: 0, running: false };
-            }
-
-            return { ...timer, time: newTime };
+          if (timer.running && timer.time > 0) {
+            const remainingTime = timer.time - 1;  // Kurangi waktu per detik
+            return {
+              ...timer,
+              time: remainingTime,
+            };
+          } else if (timer.time <= 0 && timer.running) {
+            handleTimerEnd(timer); 
+            return { ...timer, running: false, time: 0, startTime: null };
           }
           return timer;
         })
       );
-    }, 1000);
+    }, 1000);  // Menggunakan interval 1000ms untuk setiap detik
+  
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [userId]);
+  
 
-    return () => clearInterval(interval);
-  }, [timers]);
+  
 
-  const handleTimerEnd = (timer: Timer) => {
-    if (audioRef.current) {
-      audioRef.current.muted = false;
-      audioRef.current.play();
-    }
-
+  const handleTimerEnd = async (timer: Timer) => {
     Swal.fire({
       title: `Timer "${timer.name}" has finished!`,
       text: "Click OK to stop the notification.",
@@ -135,12 +143,16 @@ export default function Timer() {
       allowOutsideClick: false,
       allowEscapeKey: false,
       confirmButtonText: "OK",
-    }).then(() => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-      }
     });
+
+    const timerRef = doc(db, "timers", timer.id);
+    await updateDoc(timerRef, { running: false, time: 0, startTime: null });
+
+    if (audioRef.current) {
+      audioRef.current
+        .play()
+        .catch((err) => console.error("Error playing audio:", err));
+    }
   };
 
   const handleSave = async () => {
@@ -161,7 +173,8 @@ export default function Timer() {
         const timerRef = doc(db, "timers", editTimerId);
         await updateDoc(timerRef, timerData);
       } else {
-        await addDoc(collection(db, "timers"), timerData);
+        const docRef = await addDoc(collection(db, "timers"), timerData);
+        await updateDoc(docRef, { id: docRef.id });
       }
 
       setNewTimer({ name: "", cost: 0, hours: 0, minutes: 0, seconds: 0 });
@@ -172,32 +185,68 @@ export default function Timer() {
 
   const handlePlayPause = async (timer: Timer) => {
     const timerRef = doc(db, "timers", timer.id);
-
+  
     if (timer.running) {
+      clearInterval(timerIntervals.current.get(timer.id)!);
+      timerIntervals.current.delete(timer.id);
+  
       const elapsedTime = Math.floor(
         (Date.now() - (timer.startTime || 0)) / 1000
       );
+      const newTime = Math.max(timer.time - elapsedTime, 0);
+  
       await updateDoc(timerRef, {
         running: false,
-        time: timer.time - elapsedTime,
+        time: newTime,
         startTime: null,
       });
+  
+      setTimers((prevTimers) =>
+        prevTimers.map((t) =>
+          t.id === timer.id ? { ...t, running: false, time: newTime } : t
+        )
+      );
     } else {
+      const startTime = Date.now();
+  
+      const interval = setInterval(() => {
+        setTimers((prevTimers) =>
+          prevTimers.map((t) => {
+            if (t.id === timer.id && t.running && t.time > 0) {
+              return { ...t, time: t.time - 1 };
+            } else if (t.id === timer.id && t.time <= 0) {
+              handleTimerEnd(t);
+              clearInterval(timerIntervals.current.get(timer.id)!);
+              timerIntervals.current.delete(timer.id);
+              return { ...t, running: false, time: 0 };
+            }
+            return t;
+          })
+        );
+      }, 1000);
+  
+      timerIntervals.current.set(timer.id, interval);
+  
       await updateDoc(timerRef, {
         running: true,
-        startTime: Date.now(),
+        startTime,
       });
-
-      if (audioRef.current) {
-        audioRef.current.muted = true;
-        audioRef.current.play().catch(() => {
-          // Handle play rejection silently
-        });
-      }
+  
+      setTimers((prevTimers) =>
+        prevTimers.map((t) =>
+          t.id === timer.id
+            ? { ...t, running: true, startTime }
+            : t
+        )
+      );
     }
   };
+  
 
   const handleReset = async (timer: Timer) => {
+    clearInterval(timerIntervals.current.get(timer.id)!);
+    timerIntervals.current.delete(timer.id);
+
     const timerRef = doc(db, "timers", timer.id);
     await updateDoc(timerRef, {
       running: false,
@@ -250,6 +299,7 @@ export default function Timer() {
 
   return (
     <>
+      <audio ref={audioRef} src="/audio/notification.mp3" preload="auto" />
       <div className="flex bg-white min-h-screen text-indigo-900">
         <div className="w-64">
           <SideNavbar />
@@ -273,7 +323,7 @@ export default function Timer() {
                   key={timer.id}
                   className={`border-4 rounded-md p-4 relative bg-white shadow ${
                     timer.running ? "border-indigo-400" : "border-gray-200"
-                  }`} 
+                  }`}
                 >
                   <button
                     className="absolute top-2 right-2 text-red-600"
@@ -288,8 +338,33 @@ export default function Timer() {
                     Rp.{timer.cost}/hour
                   </p>
                   <div className="text-3xl font-bold text-center my-4">
-                    {new Date(timer.time * 1000).toISOString().substr(11, 8)}
+                    {timer.running ? (
+                      <Countdown
+                        date={Date.now() + timer.time * 1000}
+                        onComplete={() => handleTimerEnd(timer)}
+                        renderer={({
+                          hours,
+                          minutes,
+                          seconds,
+                        }: CountdownRenderProps) => (
+                          <span>
+                            {String(hours).padStart(2, "0")}:
+                            {String(minutes).padStart(2, "0")}:
+                            {String(seconds).padStart(2, "0")}
+                          </span>
+                        )}
+                      />
+                    ) : (
+                      <span>
+                        {isNaN(timer.time) || timer.time <= 0
+                          ? "00:00:00"
+                          : new Date(timer.time * 1000)
+                              .toISOString()
+                              .substr(11, 8)}
+                      </span>
+                    )}
                   </div>
+
                   <div className="flex space-x-2 justify-center">
                     <button
                       className={`${

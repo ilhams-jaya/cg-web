@@ -24,7 +24,7 @@ interface CartItem {
   name: string;
   price: number;
   quantity: number;
-  itemId: string; // Tambahkan itemId agar bisa referensi ke menu
+  itemId: string; 
 }
 
 export default function Checkout() {
@@ -34,7 +34,7 @@ export default function Checkout() {
   const [totalPrice, setTotalPrice] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [custName, setCustName] = useState("");
-  const [discount, setDiscount] = useState(0); // State untuk diskon
+  const [discount, setDiscount] = useState(0);
   const [paymentType, setPaymentType] = useState("QRIS");
   const [cashAmount, setCashAmount] = useState<number | null>(null);
 
@@ -86,7 +86,7 @@ export default function Checkout() {
       0
     );
     const fixPrice = total - discount;
-    return fixPrice > 0 ? fixPrice : 0; // Pastikan total tidak negatif
+    return fixPrice > 0 ? fixPrice : 0;
   }, []);
 
   useEffect(() => {
@@ -127,23 +127,64 @@ export default function Checkout() {
   };
 
   const handleConfirmPayment = async () => {
-    if (paymentType === "Cash" && cashAmount !== null) {
-      const change = cashAmount - totalPrice;
-      Swal.fire({
-        title: "Change Amount",
-        text: `Change: Rp.${change}`,
-        icon: "success",
-      });
-    } else {
-      Swal.fire({
-        title: `Payment Success`,
-        text: `QRIS : Rp.${totalPrice}`,
-        icon: "success",
-      });
-    }
-
     try {
-      // Membuat transaksi baru di Firestore
+      // Periksa stok hanya untuk item dengan ID yang sesuai di koleksi menus
+      for (const cartItem of cartItems) {
+        const menuDocRef = doc(db, "menus", cartItem.itemId);
+        const menuSnapshot = await getDoc(menuDocRef);
+  
+        if (!menuSnapshot.exists()) {
+          // Jika ID tidak ada di koleksi menus, lanjutkan ke item berikutnya
+          console.warn(`Item with ID ${cartItem.itemId} is not found in menus. Skipping.`);
+          continue;
+        }
+  
+        const menuData = menuSnapshot.data();
+        const updatedStock = menuData.stock - cartItem.quantity;
+  
+        if (updatedStock < 0) {
+          // Jika stok tidak mencukupi, tampilkan pesan dan hentikan proses
+          toast.error(
+            `Stok untuk ${cartItem.name} tidak mencukupi. Stok tersedia: ${menuData.stock}`
+          );
+          return; // Hentikan proses pembayaran
+        }
+      }
+  
+      // Jika stok mencukupi untuk semua item, lanjutkan pembayaran
+      if (paymentType === "Cash" && cashAmount !== null) {
+        const change = cashAmount - totalPrice;
+        Swal.fire({
+          title: "Change Amount",
+          text: `Change: Rp.${change}`,
+          icon: "success",
+        });
+      } else {
+        Swal.fire({
+          title: `Payment Success`,
+          text: `QRIS : Rp.${totalPrice}`,
+          icon: "success",
+        });
+      }
+  
+      const batch = writeBatch(db);
+  
+      // Lakukan pengurangan stok dan hapus item dari cart
+      for (const cartItem of cartItems) {
+        const menuDocRef = doc(db, "menus", cartItem.itemId);
+        const menuSnapshot = await getDoc(menuDocRef);
+  
+        if (menuSnapshot.exists()) {
+          const menuData = menuSnapshot.data();
+          const updatedStock = menuData.stock - cartItem.quantity;
+          batch.update(menuDocRef, { stock: updatedStock });
+        }
+  
+        const cartItemRef = doc(db, "cart", cartItem.id);
+        batch.delete(cartItemRef); // Hapus item dari cart
+      }
+  
+      // Tambahkan transaksi ke koleksi `transactions`
       await addDoc(collection(db, "transactions"), {
         custName: custName,
         paymentType: paymentType,
@@ -151,46 +192,20 @@ export default function Checkout() {
         total: totalPrice,
         userId: userId,
       });
-
-      // Mengambil semua item dari cart
-      const cartQuery = query(
-        collection(db, "cart"),
-        where("userId", "==", userId)
-      );
-      const cartSnapshot = await getDocs(cartQuery);
-
-      const batch = writeBatch(db);
-
-      // Update stok pada koleksi menu dan hapus item dari cart
-      for (const docSnapshot of cartSnapshot.docs) {
-        const cartItem = docSnapshot.data();
-        const menuDocRef = doc(db, "menus", cartItem.itemId);
-        const menuSnapshot = await getDoc(menuDocRef);
-
-        if (menuSnapshot.exists()) {
-          const menuData = menuSnapshot.data();
-          const updatedStock = menuData.stock - cartItem.quantity;
-
-          if (updatedStock >= 0) {
-            batch.update(menuDocRef, { stock: updatedStock });
-          } else {
-            console.error("Not enough stock for", cartItem.name);
-            // Tambahkan handling jika stok tidak cukup
-          }
-        }
-
-        batch.delete(docSnapshot.ref); // Hapus item dari cart
-      }
-
-      await batch.commit(); // Eksekusi semua operasi dalam batch
-
+  
+      await batch.commit(); // Jalankan semua operasi batch
+  
       setShowModal(false);
       setCartItems([]);
       localStorage.removeItem("cartItems");
+      toast.success("Payment successful!");
     } catch (error) {
       console.error("Error during transaction: ", error);
+      toast.error("An error occurred during payment.");
     }
   };
+  
+  
   return (
     <>
       <div className="checkout p-8 h-full bg-white border-l-2 border-gray-300 w-1/4 fixed">
