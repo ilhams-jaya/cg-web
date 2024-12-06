@@ -24,7 +24,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import Swal from "sweetalert2";
-import Countdown, { CountdownRenderProps } from "react-countdown";
+import Countdown from "react-countdown";
 import dayjs from "dayjs";
 
 interface Timer {
@@ -33,7 +33,7 @@ interface Timer {
   cost: number;
   running: boolean;
   time: number;
-  startTime?: number | null;
+  endTime?: number | null;
   userId: string;
 }
 
@@ -61,8 +61,6 @@ export default function Timer() {
   });
   const [userId, setUserId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const timerIntervals = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
   useEffect(() => {
     if (audioRef.current) {
@@ -106,35 +104,6 @@ export default function Timer() {
     }
   }, [userId]);
 
-  useEffect(() => { 
-    if (intervalRef.current) clearInterval(intervalRef.current);
-  
-    intervalRef.current = setInterval(() => {
-      setTimers((prevTimers) =>
-        prevTimers.map((timer) => {
-          if (timer.running && timer.time > 0) {
-            const remainingTime = timer.time - 1;  // Kurangi waktu per detik
-            return {
-              ...timer,
-              time: remainingTime,
-            };
-          } else if (timer.time <= 0 && timer.running) {
-            handleTimerEnd(timer); 
-            return { ...timer, running: false, time: 0, startTime: null };
-          }
-          return timer;
-        })
-      );
-    }, 1000);  // Menggunakan interval 1000ms untuk setiap detik
-  
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [userId]);
-  
-
-  
-
   const handleTimerEnd = async (timer: Timer) => {
     Swal.fire({
       title: `Timer "${timer.name}" has finished!`,
@@ -146,7 +115,11 @@ export default function Timer() {
     });
 
     const timerRef = doc(db, "timers", timer.id);
-    await updateDoc(timerRef, { running: false, time: 0, startTime: null });
+    await updateDoc(timerRef, {
+      running: false,
+      time: 0,
+      endTime: null
+    });
 
     if (audioRef.current) {
       audioRef.current
@@ -165,7 +138,7 @@ export default function Timer() {
         cost: newTimer.cost,
         running: false,
         time: totalTimeInSeconds,
-        startTime: null,
+        endTime: null,
         userId: userId!,
       };
 
@@ -185,73 +158,32 @@ export default function Timer() {
 
   const handlePlayPause = async (timer: Timer) => {
     const timerRef = doc(db, "timers", timer.id);
-  
+
     if (timer.running) {
-      clearInterval(timerIntervals.current.get(timer.id)!);
-      timerIntervals.current.delete(timer.id);
-  
-      const elapsedTime = Math.floor(
-        (Date.now() - (timer.startTime || 0)) / 1000
-      );
-      const newTime = Math.max(timer.time - elapsedTime, 0);
-  
+
+      const remainingTime = timer.endTime ? Math.max(Math.floor((timer.endTime - Date.now()) / 1000), 0) : 0;
+
       await updateDoc(timerRef, {
         running: false,
-        time: newTime,
-        startTime: null,
+        time: remainingTime,
+        endTime: null,
       });
-  
-      setTimers((prevTimers) =>
-        prevTimers.map((t) =>
-          t.id === timer.id ? { ...t, running: false, time: newTime } : t
-        )
-      );
     } else {
-      const startTime = Date.now();
-  
-      const interval = setInterval(() => {
-        setTimers((prevTimers) =>
-          prevTimers.map((t) => {
-            if (t.id === timer.id && t.running && t.time > 0) {
-              return { ...t, time: t.time - 1 };
-            } else if (t.id === timer.id && t.time <= 0) {
-              handleTimerEnd(t);
-              clearInterval(timerIntervals.current.get(timer.id)!);
-              timerIntervals.current.delete(timer.id);
-              return { ...t, running: false, time: 0 };
-            }
-            return t;
-          })
-        );
-      }, 1000);
-  
-      timerIntervals.current.set(timer.id, interval);
-  
+      const endTime = Date.now() + (timer.time * 1000);
+
       await updateDoc(timerRef, {
         running: true,
-        startTime,
+        endTime: endTime,
       });
-  
-      setTimers((prevTimers) =>
-        prevTimers.map((t) =>
-          t.id === timer.id
-            ? { ...t, running: true, startTime }
-            : t
-        )
-      );
     }
   };
-  
 
   const handleReset = async (timer: Timer) => {
-    clearInterval(timerIntervals.current.get(timer.id)!);
-    timerIntervals.current.delete(timer.id);
-
     const timerRef = doc(db, "timers", timer.id);
     await updateDoc(timerRef, {
       running: false,
       time: 0,
-      startTime: null,
+      endTime: null,
     });
   };
 
@@ -289,12 +221,25 @@ export default function Timer() {
 
       try {
         await addDoc(collection(db, "cart"), cartItem);
-
         setCart((prevCart) => [...prevCart, cartItem]);
       } catch (error) {
         console.error("Error adding to cart: ", error);
       }
     }
+  };
+
+  const renderer = ({ hours, minutes, seconds, completed }: any) => {
+    if (completed) {
+      return <span>00:00:00</span>;
+    }
+
+    return (
+      <span>
+        {String(hours).padStart(2, "0")}:
+        {String(minutes).padStart(2, "0")}:
+        {String(seconds).padStart(2, "0")}
+      </span>
+    );
   };
 
   return (
@@ -304,7 +249,7 @@ export default function Timer() {
         <div className="w-64">
           <SideNavbar />
         </div>
-        <div className="flex-grow p-8">
+        <div className="tiimer flex-grow p-8">
           <div className="timer-header flex flex-row justify-between items-center mb-4">
             <h1 className="font-bold text-2xl">Timer</h1>
             <button
@@ -340,27 +285,15 @@ export default function Timer() {
                   <div className="text-3xl font-bold text-center my-4">
                     {timer.running ? (
                       <Countdown
-                        date={Date.now() + timer.time * 1000}
+                        date={timer.endTime || 0}
                         onComplete={() => handleTimerEnd(timer)}
-                        renderer={({
-                          hours,
-                          minutes,
-                          seconds,
-                        }: CountdownRenderProps) => (
-                          <span>
-                            {String(hours).padStart(2, "0")}:
-                            {String(minutes).padStart(2, "0")}:
-                            {String(seconds).padStart(2, "0")}
-                          </span>
-                        )}
+                        renderer={renderer}
                       />
                     ) : (
                       <span>
-                        {isNaN(timer.time) || timer.time <= 0
-                          ? "00:00:00"
-                          : new Date(timer.time * 1000)
-                              .toISOString()
-                              .substr(11, 8)}
+                        {String(Math.floor(timer.time / 3600)).padStart(2, "0")}:
+                        {String(Math.floor((timer.time % 3600) / 60)).padStart(2, "0")}:
+                        {String(timer.time % 60).padStart(2, "0")}
                       </span>
                     )}
                   </div>

@@ -206,17 +206,28 @@ export default function Stopwatch() {
         imageUrl: "",
         quantity: 1,
       };
-
+  
       try {
+        // Tambahkan item ke keranjang
         await addDoc(collection(db, "cart"), cartItem);
-
+  
+        // Hapus stopwatch dari koleksi "stopwatches"
+        await deleteDoc(doc(db, "stopwatches", sw.id));
+  
+        // Perbarui state stopwatches
+        setStopwatches(stopwatches.filter((s) => s.id !== sw.id));
+  
+        // Perbarui state keranjang
         setCart([...cart, cartItem]);
-        toast.success(`${sw.name} has been added to your cart.`);
+  
+        toast.success(`${sw.name} has been added to your cart and removed from the list.`);
       } catch (error) {
-        console.error("Error adding to cart: ", error);
+        console.error("Error adding to cart or deleting stopwatch: ", error);
+        toast.error("Failed to add to cart. Please try again.");
       }
     }
   };
+  
 
   return (
     <>
@@ -225,7 +236,7 @@ export default function Stopwatch() {
           <SideNavbar />
         </div>
         <div className="stopwatch flex-grow p-8">
-          <div className="stopwatch-header flex flex-row justify-between items-center">
+          <div className="stopwatch-header flex flex-row justify-between items-center mb-4">
             <h1 className="font-bold text-2xl">Stopwatch</h1>
             <button
               className="px-6 py-3 bg-indigo-600 text-white rounded-md"
@@ -257,8 +268,8 @@ export default function Stopwatch() {
                 <div className="text-3xl mt-4 mb-2 text-center font-bold">
                   {formatTime(sw.time)}
                 </div>
-                <p className="text-gray-600 text-center">Rp{sw.cost}/hour</p>
-                <div className="flex space-x-4 mb-2 mt-2 justify-center">
+                <p className="text-gray-600 text-center mb-2">Rp{sw.cost}/hour</p>
+                <div className="flex space-x-2 justify-center">
                   <button
                     className={`${
                       sw.running ? "bg-red-500" : "bg-green-500"

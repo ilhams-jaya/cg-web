@@ -5,7 +5,7 @@ import React, { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import SideNavbar from "../components/SideNavbar";
 import Checkout from "../components/Checkout";
-import { MenuData, MenuFormData } from "../types/menuTypes";
+//import { MenuData, MenuFormData } from "../types/menuTypes";
 import { getMenus, createMenu, modifyMenu, removeMenu } from "../controllers/menuController";
 import Image from "next/image";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -13,6 +13,22 @@ import { faEdit, faTrash } from "@fortawesome/free-solid-svg-icons";
 import toast from "react-hot-toast";
 import { addDoc, collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase";
+
+interface MenuData {
+  id?: string;
+  name: string;
+  price: string;
+  stock: string;
+  imageUrl: string;
+  userId: string;
+}
+
+interface MenuFormData {
+  name: string;
+  price: string;
+  stock: string;
+  image: File | null;
+}
 
 export default function Menu() {
   const { data: session } = useSession();
